@@ -1,0 +1,19 @@
+# Package archives
+*.zip
+*.tar.gz
+
+# Operating System files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor files
+.vscode/
+.idea/
+*.swp
+*~
+
+# Temporary test & runtime data
+scratch/
+.system_generated/
+*.log
