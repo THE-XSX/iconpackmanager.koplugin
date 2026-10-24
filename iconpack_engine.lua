@@ -1,3 +1,10 @@
+-- SPDX-FileCopyrightText: Copyright (C) 2026 THE-XSX
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+--
+-- Icon Pack Manager (图标包管理器) - KOReader plugin
+-- Released under the GNU Affero General Public License v3.0 or later.
+-- See the LICENSE file in the project root for the full license text.
+
 local Archiver = require("ffi/archiver")
 local ffiUtil = require("ffi/util")
 local lfs = require("libs/libkoreader-lfs")
@@ -158,83 +165,162 @@ local function mapArchivePath(path)
     end
 end
 
-function Engine:new(options)
-    local data_dir = assert(options and options.data_dir, "data_dir is required")
-    local settings_dir = assert(options.settings_dir, "settings_dir is required")
-    local state_root = join(settings_dir, "iconpackmanager")
-    local object = {
-        data_dir = data_dir,
-        state_root = state_root,
-        backup_root = join(state_root, "original"),
-        backup_marker = join(join(state_root, "original"), ".complete"),
-        extraction_root = join(state_root, "extracted"),
-        transaction_marker = join(state_root, ".transaction"),
-        targets = {
-            mdlight = {
-                live = join(data_dir, "resources/icons/mdlight"),
-                backup_name = "mdlight",
-            },
-            simpleui = {
-                live = join(data_dir, "plugins/simpleui.koplugin/icons"),
-                backup_name = "simpleui",
-            },
-        },
-    }
-    setmetatable(object, self)
-    for _, target in pairs(object.targets) do
-        target.backup = join(object.backup_root, target.backup_name)
-        target.next = target.live .. ".iconpackmanager-next"
-        target.previous = target.live .. ".iconpackmanager-previous"
-    end
-    return object
+local function parentDir(path)
+    return path and path:match("^(.*)/[^/]+/*$")
 end
 
-function Engine:_inventory(target_key)
-    local root = self.targets[target_key].live
-    local names = {}
+local function isEmptyDir(path)
+    local ok, iter, dir_obj = pcall(lfs.dir, path)
+    if not ok then
+        return false
+    end
+    for name in iter, dir_obj do
+        if name ~= "." and name ~= ".." then
+            return false
+        end
+    end
+    return true
+end
+
+-- Collects SVG names (relative to root) into `names`; missing roots are ignored.
+local function listSvgs(root, names, recursive)
     local function scan(dir, prefix)
         local ok, iter, dir_obj = pcall(lfs.dir, dir)
         if not ok then
-            return nil, iter
+            return
         end
         for name in iter, dir_obj do
             if name ~= "." and name ~= ".." then
                 local path = join(dir, name)
                 local relative = prefix == "" and name or join(prefix, name)
-                local attr = lfs.attributes(path)
-                if attr and attr.mode == "directory" then
-                    local child_ok, child_err = scan(path, relative)
-                    if not child_ok then
-                        return nil, child_err
-                    end
-                elseif attr and attr.mode == "file" and name:lower():sub(-4) == ".svg" then
+                local mode = fileMode(path)
+                if mode == "directory" and recursive then
+                    scan(path, relative)
+                elseif mode == "file" and name:lower():sub(-4) == ".svg" then
                     names[relative] = true
                 end
             end
         end
-        return true
     end
-    local ok, err = scan(root, "")
-    if not ok then
-        return nil, err
+    if fileMode(root) == "directory" then
+        scan(root, "")
     end
     return names
 end
 
-function Engine:hasSimpleUI()
-    if fileMode(self.backup_marker) == "file" then
-        local marker = util.readFromFile(self.backup_marker, "rb")
-        if marker then
-            local _, _, sc = marker:match("^(%d+) (%d+) ?(%d*) ?(%d*)%s*$")
-            if sc and tonumber(sc) and tonumber(sc) > 0 then
-                return true
-            end
-            if marker:match("^(%d+) (%d+)$") or (sc and tonumber(sc) == 0) then
-                return false
-            end
+-- Simple UI may live in the user plugin dir (<data>/plugins, e.g. /sdcard/koreader/plugins
+-- on Android), in the install dir (Kindle/Kobo, where both are the same), or next to us.
+local function findSimpleUIIcons(data_dir, install_dir, plugin_dir)
+    local candidates = {
+        join(data_dir, "plugins/simpleui.koplugin"),
+        join(install_dir, "plugins/simpleui.koplugin"),
+    }
+    local parent = parentDir(plugin_dir)
+    if parent then
+        candidates[#candidates + 1] = join(parent, "simpleui.koplugin")
+    end
+    for _, dir in ipairs(candidates) do
+        local icons = join(dir, "icons")
+        -- The "-previous" check keeps an interrupted swap recoverable on next start.
+        if fileMode(icons) == "directory"
+                or fileMode(icons .. ".iconpackmanager-previous") == "directory" then
+            return icons
         end
     end
-    return fileMode(self.targets.simpleui.live) == "directory"
+end
+
+-- Options:
+--   data_dir     KOReader data dir (DataStorage:getFullDataDir(), /sdcard/koreader on Android)
+--   settings_dir KOReader settings dir
+--   plugin_dir   this plugin's own directory (holds the bundled official/ icons)
+--   install_dir  KOReader program dir holding resources/ (the working directory)
+function Engine:new(options)
+    local data_dir = assert(options and options.data_dir, "data_dir is required")
+    local settings_dir = assert(options.settings_dir, "settings_dir is required")
+    local plugin_dir = options.plugin_dir or "plugins/iconpackmanager.koplugin"
+    local install_dir = options.install_dir or "."
+    local state_root = join(settings_dir, "iconpackmanager")
+    local official_root = options.official_root or join(plugin_dir, "official")
+    local object = {
+        data_dir = data_dir,
+        install_dir = install_dir,
+        plugin_dir = plugin_dir,
+        state_root = state_root,
+        official_root = official_root,
+        legacy_backup_root = join(state_root, "original"),
+        managed_file = join(state_root, "managed_icons.txt"),
+        extraction_root = join(state_root, "extracted"),
+        transaction_marker = join(state_root, ".transaction"),
+        targets = {
+            mdlight = {
+                -- KOReader's IconWidget looks here before resources/icons/mdlight,
+                -- so we never have to touch the (possibly read-only) program files.
+                live = join(data_dir, "icons"),
+                builtin = join(install_dir, "resources/icons/mdlight"),
+                data_builtin = join(data_dir, "resources/icons/mdlight"),
+                official = join(official_root, "mdlight"),
+            },
+            simpleui = {
+                live = findSimpleUIIcons(data_dir, install_dir, plugin_dir),
+                official = join(official_root, "simpleui"),
+            },
+        },
+        _inventories = {},
+    }
+    setmetatable(object, self)
+    for _, target in pairs(object.targets) do
+        if target.live then
+            target.next = target.live .. ".iconpackmanager-next"
+            target.previous = target.live .. ".iconpackmanager-previous"
+        end
+    end
+    return object
+end
+
+-- Icon names a pack may replace: the bundled official set plus whatever the
+-- current installation ships (covers version drift in either direction).
+function Engine:_inventory(target_key)
+    local cached = self._inventories[target_key]
+    if cached then
+        return cached
+    end
+    local target = self.targets[target_key]
+    local names = {}
+    if target_key == "mdlight" then
+        -- IconWidget resolves user icons by bare name, so only flat names count.
+        listSvgs(target.official, names, false)
+        listSvgs(target.builtin, names, false)
+        listSvgs(target.data_builtin, names, false)
+    else
+        listSvgs(target.official, names, true)
+        if target.live then
+            listSvgs(target.live, names, true)
+        end
+    end
+    self._inventories[target_key] = names
+    return names
+end
+
+function Engine:hasSimpleUI()
+    return self.targets.simpleui.live ~= nil
+end
+
+function Engine:simpleUIPath()
+    return self.targets.simpleui.live
+end
+
+function Engine:userIconsPath()
+    return self.targets.mdlight.live
+end
+
+-- The user icon override dir must not double as a pack folder.
+function Engine:isReservedFolder(path)
+    if not path then
+        return false
+    end
+    local live = self.targets.mdlight.live
+    path = path:gsub("/+$", "")
+    return path == live or path:sub(1, #live + 1) == live .. "/"
 end
 
 function Engine:_activeTargets()
@@ -258,12 +344,18 @@ end
 
 function Engine:_finalizePlan(plan, destinations)
     plan.unknown = sortedKeys(plan.unknown)
+    local managed = {}
+    for destination_key in pairs(destinations) do
+        local relative = destination_key:match("^mdlight/(.+)$")
+        if relative then
+            managed[#managed + 1] = relative
+        end
+    end
+    table.sort(managed)
+    plan.managed = managed
     local is_complete = true
     for _, target_key in ipairs(self:_activeTargets()) do
-        local inventory, err = self:_inventory(target_key)
-        if not inventory then
-            return nil, err
-        end
+        local inventory = self:_inventory(target_key)
         local missing = {}
         for relative in pairs(inventory) do
             plan.expected[target_key] = plan.expected[target_key] + 1
@@ -302,8 +394,8 @@ function Engine:_mapIconPath(path, size)
         if not safe_relative then
             return nil, relative_err
         end
-        if fileMode(join(self.targets[explicit_target].live, safe_relative)) ~= "file" then
-            return nil, "图标名不属于当前安装：" .. safe_relative
+        if not self:_inventory(explicit_target)[safe_relative] then
+            return false
         end
         return {{ target = explicit_target, relative = safe_relative, size = size }}
     end
@@ -311,7 +403,7 @@ function Engine:_mapIconPath(path, size)
     local filename = basename(safe_path)
     local mappings = {}
     for _, target_key in ipairs(self:_activeTargets()) do
-        if fileMode(join(self.targets[target_key].live, filename)) == "file" then
+        if self:_inventory(target_key)[filename] then
             mappings[#mappings + 1] = {
                 target = target_key,
                 relative = filename,
@@ -325,125 +417,69 @@ function Engine:_mapIconPath(path, size)
     return mappings
 end
 
-function Engine:_targetStats(root, target_keys)
-    target_keys = target_keys or self:_activeTargets()
-    local result = {}
-    for _, key in ipairs(target_keys) do
-        local stats, err = directoryStats(join(root, self.targets[key].backup_name))
-        if not stats then
-            return nil, err
+function Engine:_readManaged()
+    local managed = {}
+    local content = util.readFromFile and util.readFromFile(self.managed_file, "rb")
+    if content then
+        for line in content:gmatch("[^\r\n]+") do
+            local safe = safeArchivePath(line)
+            if safe and not safe:find("/", 1, true) then
+                managed[safe] = true
+            end
         end
-        result[key] = stats
     end
-    return result
+    return managed
 end
 
-function Engine:backupStatus()
-    if fileMode(self.backup_marker) ~= "file" then
-        return false, "尚未备份原版图标"
+function Engine:_writeManaged(managed)
+    local names = sortedKeys(managed)
+    if #names == 0 then
+        os.remove(self.managed_file)
+        return true
     end
-    local marker = util.readFromFile(self.backup_marker, "rb")
-    if not marker then
-        return false, "备份标记无法读取"
-    end
-    local mc, mb, sc, sb = marker:match("^(%d+) (%d+) ?(%d*) ?(%d*)%s*$")
-    if not mc or not mb then
-        return false, "备份标记已损坏"
-    end
-    local has_sui = sc and tonumber(sc) and tonumber(sc) > 0
-    local target_keys = has_sui and { "mdlight", "simpleui" } or { "mdlight" }
-    local stats, err = self:_targetStats(self.backup_root, target_keys)
-    if not stats then
-        return false, "备份无法读取：" .. tostring(err)
-    end
-    if stats.mdlight.count ~= tonumber(mc) or stats.mdlight.bytes ~= tonumber(mb) then
-        return false, "KOReader 备份校验失败"
-    end
-    if stats.mdlight.count == 0 then
-        return false, "KOReader 备份内容不完整"
-    end
-    if has_sui then
-        if stats.simpleui.count ~= tonumber(sc) or stats.simpleui.bytes ~= tonumber(sb) then
-            return false, "Simple UI 备份校验失败"
-        end
-        if stats.simpleui.count == 0 then
-            return false, "Simple UI 备份内容不完整"
-        end
-    else
-        stats.simpleui = { count = 0, bytes = 0 }
-    end
-    return true, stats
-end
-
-function Engine:createBackup()
-    local valid = self:backupStatus()
-    if valid then
-        return nil, "原版图标已经备份；为防止覆盖，不能重复备份"
-    end
-    if fileMode(self.targets.mdlight.live) ~= "directory" then
-        return nil, "找不到目标目录：" .. self.targets.mdlight.live
-    end
-    local has_sui = fileMode(self.targets.simpleui.live) == "directory"
-    local active_keys = has_sui and { "mdlight", "simpleui" } or { "mdlight" }
-
     local ok, err = util.makePath(self.state_root)
     if not ok then
         return nil, err
     end
-    local staging = self.backup_root .. ".next"
-    removeTree(staging)
-    ok, err = util.makePath(staging)
+    ok, err = util.writeToFile(table.concat(names, "\n") .. "\n", self.managed_file)
     if not ok then
-        return nil, err
+        return nil, err or "无法写入图标记录"
     end
-    for _, key in ipairs(active_keys) do
-        ok, err = copyTree(self.targets[key].live, join(staging, self.targets[key].backup_name))
-        if not ok then
-            removeTree(staging)
-            return nil, "备份失败：" .. tostring(err)
+    return true
+end
+
+-- Number of icons in each bundled official set.
+function Engine:officialStatus()
+    local result = {}
+    for _, key in ipairs(TARGET_KEYS) do
+        local count = 0
+        for _ in pairs(listSvgs(self.targets[key].official, {}, true)) do
+            count = count + 1
         end
+        result[key] = count
     end
-    local source_stats = {}
-    for _, key in ipairs(active_keys) do
-        source_stats[key], err = directoryStats(self.targets[key].live)
-        if not source_stats[key] then
-            removeTree(staging)
+    return result
+end
+
+-- Plugin versions <= 1.1 rewrote resources/icons/mdlight in place and kept a backup.
+function Engine:hasLegacyBackup()
+    return fileMode(join(self.legacy_backup_root, ".complete")) == "file"
+end
+
+function Engine:_restoreLegacyBuiltin()
+    if not self:hasLegacyBackup() then
+        return true
+    end
+    local source = join(self.legacy_backup_root, "mdlight")
+    local builtin = self.targets.mdlight.builtin
+    if fileMode(source) == "directory" and fileMode(builtin) == "directory" then
+        local ok, err = copyTree(source, builtin)
+        if not ok then
             return nil, err
         end
     end
-    local backup_stats
-    backup_stats, err = self:_targetStats(staging, active_keys)
-    if not backup_stats then
-        removeTree(staging)
-        return nil, err
-    end
-    for _, key in ipairs(active_keys) do
-        if source_stats[key].count ~= backup_stats[key].count
-                or source_stats[key].bytes ~= backup_stats[key].bytes then
-            removeTree(staging)
-            return nil, "备份文件数量或大小校验失败"
-        end
-    end
-    local marker
-    if has_sui then
-        marker = string.format("%d %d %d %d\n",
-            backup_stats.mdlight.count, backup_stats.mdlight.bytes,
-            backup_stats.simpleui.count, backup_stats.simpleui.bytes)
-    else
-        marker = string.format("%d %d 0 0\n",
-            backup_stats.mdlight.count, backup_stats.mdlight.bytes)
-        backup_stats.simpleui = { count = 0, bytes = 0 }
-    end
-    if not util.writeToFile(marker, join(staging, ".complete")) then
-        removeTree(staging)
-        return nil, "无法写入备份校验标记"
-    end
-    removeTree(self.backup_root)
-    ok, err = os.rename(staging, self.backup_root)
-    if not ok then
-        return nil, "无法完成备份：" .. tostring(err)
-    end
-    return true, backup_stats
+    removeTree(self.legacy_backup_root)
+    return true
 end
 
 function Engine:_mapEntry(entry)
@@ -650,6 +686,9 @@ function Engine:_addDirectoryPack(packs, name, path)
 end
 
 function Engine:scanFolder(folder)
+    if self:isReservedFolder(folder) then
+        return nil, "该目录是 KOReader 的图标覆盖目录，请把图标包放在其他文件夹（如 iconpacks）"
+    end
     local packs = {}
     local ok, iter, dir_obj = pcall(lfs.dir, folder)
     if not ok then
@@ -674,7 +713,8 @@ function Engine:scanFolder(folder)
                     plan = plan,
                     error = err,
                 }
-            elseif mode == "directory" and not current_is_pack and directoryContainsSvg(path) then
+            elseif mode == "directory" and not current_is_pack
+                    and not self:isReservedFolder(path) and directoryContainsSvg(path) then
                 if hasDirectSvg(path) or hasStructuredChild(path) then
                     self:_addDirectoryPack(packs, name, path)
                 else
@@ -808,13 +848,48 @@ function Engine:_copyDirectoryPack(plan)
     return copied
 end
 
+function Engine:_discardStages()
+    for _, key in ipairs(self:_activeTargets()) do
+        removeTree(self.targets[key].next)
+    end
+end
+
+-- Builds <live>.iconpackmanager-next for every active target:
+--   mdlight:  current <data>/icons minus files we installed earlier (user's own icons survive)
+--   simpleui: current icons with the bundled official set laid over them
+-- then (optionally) overlays the freshly extracted pack.
 function Engine:_prepareStages(with_overlay)
+    local managed = self:_readManaged()
     for _, key in ipairs(self:_activeTargets()) do
         local target = self.targets[key]
         removeTree(target.next)
-        local ok, err = copyTree(target.backup, target.next)
-        if not ok then
-            return nil, err
+        local ok, err
+        if key == "mdlight" then
+            if fileMode(target.live) == "directory" then
+                ok, err = copyTree(target.live, target.next)
+            else
+                ok, err = util.makePath(target.next)
+            end
+            if not ok then
+                return nil, err
+            end
+            for name in pairs(managed) do
+                local path = join(target.next, name)
+                if fileMode(path) == "file" and not os.remove(path) then
+                    return nil, "无法移除旧图标：" .. name
+                end
+            end
+        elseif key == "simpleui" then
+            if fileMode(target.official) == "directory" then
+                ok, err = copyTree(target.official, target.next)
+            elseif fileMode(target.live) == "directory" then
+                ok, err = copyTree(target.live, target.next)
+            else
+                ok, err = util.makePath(target.next)
+            end
+            if not ok then
+                return nil, err
+            end
         end
         if with_overlay and fileMode(join(self.extraction_root, key)) == "directory" then
             ok, err = copyTree(join(self.extraction_root, key), target.next)
@@ -830,12 +905,14 @@ function Engine:_rollbackTransaction()
     local all_ok = true
     for _, key in ipairs(TARGET_KEYS) do
         local target = self.targets[key]
-        if fileMode(target.previous) == "directory" then
-            removeTree(target.live)
-            local ok = os.rename(target.previous, target.live)
-            all_ok = all_ok and ok and true or false
+        if target.live then
+            if fileMode(target.previous) == "directory" then
+                removeTree(target.live)
+                local ok = os.rename(target.previous, target.live)
+                all_ok = all_ok and ok and true or false
+            end
+            removeTree(target.next)
         end
-        removeTree(target.next)
     end
     os.remove(self.transaction_marker)
     return all_ok
@@ -852,25 +929,42 @@ function Engine:recoverTransaction()
     end
     for _, key in ipairs(TARGET_KEYS) do
         local target = self.targets[key]
-        if fileMode(target.live) ~= "directory" and fileMode(target.previous) == "directory" then
-            os.rename(target.previous, target.live)
-        elseif fileMode(target.previous) == "directory" then
-            removeTree(target.previous)
+        if target.live then
+            if fileMode(target.live) ~= "directory" and fileMode(target.previous) == "directory" then
+                os.rename(target.previous, target.live)
+            elseif fileMode(target.previous) == "directory" then
+                removeTree(target.previous)
+            end
+            removeTree(target.next)
         end
-        removeTree(target.next)
+    end
+    if self:hasLegacyBackup() then
+        self:_restoreLegacyBuiltin()
     end
     return true
 end
 
 function Engine:_commitStages()
-    local ok, err = util.writeToFile("active\n", self.transaction_marker)
+    local ok, err = util.makePath(self.state_root)
+    if not ok then
+        return nil, "无法创建状态目录：" .. tostring(err)
+    end
+    ok = util.writeToFile("active\n", self.transaction_marker)
     if not ok then
         return nil, "无法创建事务标记"
     end
     for _, key in ipairs(self:_activeTargets()) do
         local target = self.targets[key]
         removeTree(target.previous)
-        ok, err = os.rename(target.live, target.previous)
+        -- <data>/icons may not exist yet; an empty placeholder keeps the swap uniform.
+        if fileMode(target.live) ~= "directory" then
+            ok, err = util.makePath(target.live)
+        else
+            ok = true
+        end
+        if ok then
+            ok, err = os.rename(target.live, target.previous)
+        end
         if ok then
             ok, err = os.rename(target.next, target.live)
         end
@@ -879,21 +973,22 @@ function Engine:_commitStages()
             if not rolled_back then
                 return nil, "更换失败且自动回滚不完整：" .. tostring(err)
             end
-            return nil, "更换失败，已恢复原版图标：" .. tostring(err)
+            return nil, "更换失败，已回滚到更换前的状态：" .. tostring(err)
         end
     end
     os.remove(self.transaction_marker)
     for _, key in ipairs(self:_activeTargets()) do
         removeTree(self.targets[key].previous)
     end
+    -- Leave no empty override dir behind once everything is back to official.
+    local user_icons = self.targets.mdlight.live
+    if fileMode(user_icons) == "directory" and isEmptyDir(user_icons) then
+        os.remove(user_icons)
+    end
     return true
 end
 
 function Engine:_applyPreparedPlan(path, plan, prepare_func)
-    local backup_ok, backup_err = self:backupStatus()
-    if not backup_ok then
-        return nil, backup_err
-    end
     local prepared, err = prepare_func()
     if not prepared then
         return nil, err
@@ -901,14 +996,34 @@ function Engine:_applyPreparedPlan(path, plan, prepare_func)
     local ok
     ok, err = self:_prepareStages(true)
     if not ok then
+        self:_discardStages()
         removeTree(self.extraction_root)
         return nil, "准备图标失败：" .. tostring(err)
     end
+
+    local previous_managed = self:_readManaged()
+    local new_managed = {}
+    for _, relative in ipairs(plan.managed or {}) do
+        new_managed[relative] = true
+    end
+    -- Record old + new before swapping so an interruption never orphans installed icons.
+    local union = {}
+    for relative in pairs(previous_managed) do union[relative] = true end
+    for relative in pairs(new_managed) do union[relative] = true end
+    ok, err = self:_writeManaged(union)
+    if not ok then
+        self:_discardStages()
+        removeTree(self.extraction_root)
+        return nil, "无法记录已安装图标：" .. tostring(err)
+    end
+
     ok, err = self:_commitStages()
     removeTree(self.extraction_root)
     if not ok then
+        self:_writeManaged(previous_managed)
         return nil, err
     end
+    self:_writeManaged(new_managed)
     logger.info("iconpackmanager: applied", path, plan.mdlight, plan.simpleui)
     return plan
 end
@@ -943,20 +1058,25 @@ function Engine:applyPack(pack)
     return self:applyArchive(pack.path)
 end
 
+-- Back to the official look: drop our overrides from <data>/icons and lay the
+-- bundled official Simple UI icons over the plugin's icons dir.
+-- Returns true[, warning].
 function Engine:restoreOriginal()
-    local backup_ok, backup_err = self:backupStatus()
-    if not backup_ok then
-        return nil, backup_err
-    end
     local ok, err = self:_prepareStages(false)
     if not ok then
+        self:_discardStages()
         return nil, "准备恢复失败：" .. tostring(err)
     end
     ok, err = self:_commitStages()
     if not ok then
         return nil, err
     end
-    logger.info("iconpackmanager: restored original icons")
+    self:_writeManaged({})
+    logger.info("iconpackmanager: restored official icons")
+    local legacy_ok, legacy_err = self:_restoreLegacyBuiltin()
+    if not legacy_ok then
+        return true, "旧版插件改动过的程序图标未能还原：" .. tostring(legacy_err)
+    end
     return true
 end
 

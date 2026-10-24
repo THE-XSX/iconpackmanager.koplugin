@@ -1,3 +1,10 @@
+-- SPDX-FileCopyrightText: Copyright (C) 2026 THE-XSX
+-- SPDX-License-Identifier: AGPL-3.0-or-later
+--
+-- Icon Pack Manager (图标包管理器) - KOReader plugin
+-- Released under the GNU Affero General Public License v3.0 or later.
+-- See the LICENSE file in the project root for the full license text.
+
 local ConfirmBox = require("ui/widget/confirmbox")
 local DataStorage = require("datastorage")
 local Engine = require("iconpack_engine")
@@ -23,12 +30,27 @@ local function basename(path)
     return path and path:match("([^/]+)/*$") or nil
 end
 
+local function getPluginDir(data_dir)
+    local src = debug.getinfo(1, "S").source
+    local dir = src and src:match("@?(.*iconpackmanager%.koplugin)")
+    if dir and dir ~= "" then
+        return dir
+    end
+    local candidate = data_dir .. "/plugins/iconpackmanager.koplugin"
+    if lfs.attributes(candidate, "mode") == "directory" then
+        return candidate
+    end
+    return "plugins/iconpackmanager.koplugin"
+end
+
 function IconPackManager:init()
     local data_dir = DataStorage:getFullDataDir() or DataStorage:getDataDir()
+    local plugin_dir = getPluginDir(data_dir)
     self.settings = LuaSettings:open(self.settings_file)
     self.engine = Engine:new{
         data_dir = data_dir,
         settings_dir = DataStorage:getSettingsDir(),
+        plugin_dir = plugin_dir,
     }
     local ok, message = self.engine:recoverTransaction()
     if not ok then
@@ -50,10 +72,15 @@ end
 
 function IconPackManager:selectedFolder()
     local folder = self.settings:readSetting("pack_folder")
-    if folder and lfs.attributes(folder, "mode") == "directory" then
+    if folder and lfs.attributes(folder, "mode") == "directory" and not self.engine:isReservedFolder(folder) then
         return folder
     end
-    return DataStorage:getFullDataDir() or DataStorage:getDataDir()
+    local data_dir = DataStorage:getFullDataDir() or DataStorage:getDataDir()
+    local candidate = data_dir .. "/iconpacks"
+    if lfs.attributes(candidate, "mode") == "directory" then
+        return candidate
+    end
+    return data_dir
 end
 
 function IconPackManager:chooseFolder(touchmenu_instance)
@@ -64,6 +91,10 @@ function IconPackManager:chooseFolder(touchmenu_instance)
         select_file = false,
         show_files = false,
         onConfirm = function(path)
+            if self.engine:isReservedFolder(path) then
+                self:showMessage(_("不能选择 KOReader 的图标覆盖目录作为图标包文件夹，请新建一个专门的目录（如 iconpacks）"), 5)
+                return
+            end
             self.settings:saveSetting("pack_folder", path)
             self.settings:flush()
             if touchmenu_instance then
@@ -79,42 +110,10 @@ function IconPackManager:chooseFolder(touchmenu_instance)
     })
 end
 
-function IconPackManager:backupOriginal(touchmenu_instance)
-    local has_simpleui = self.engine:hasSimpleUI()
-    local text = has_simpleui
-        and _("将当前 KOReader 与 Simple UI 图标目录保存为受保护的原版备份。备份成功后才能更换图标，且插件不会覆盖已有的有效备份。")
-        or _("将当前 KOReader 图标目录保存为受保护的原版备份。备份成功后才能更换图标，且插件不会覆盖已有的有效备份。")
-    UIManager:show(ConfirmBox:new{
-        text = text,
-        ok_text = _("开始备份"),
-        ok_callback = function()
-            local ok, result = self.engine:createBackup()
-            if not ok then
-                self:showMessage(_("备份失败：") .. tostring(result))
-                return
-            end
-            self.settings:saveSetting("active_pack", nil)
-            self.settings:flush()
-            if touchmenu_instance then
-                touchmenu_instance:updateItems()
-            end
-            local msg
-            if has_simpleui and result.simpleui and result.simpleui.count > 0 then
-                msg = T(_("备份完成：KOReader %1 个文件，Simple UI %2 个文件"),
-                    result.mdlight.count, result.simpleui.count)
-            else
-                msg = T(_("备份完成：KOReader %1 个文件（未检测到 Simple UI）"),
-                    result.mdlight.count)
-            end
-            self:showMessage(msg)
-        end,
-    })
-end
-
 function IconPackManager:applyPack(pack)
     local has_simpleui = self.engine:hasSimpleUI()
     UIManager:show(ConfirmBox:new{
-        text = T(_("应用图标包“%1”？\n\n缺少的图标会保留原版。应用前会从原版备份构建完整目录，失败时自动回滚。"), pack.name),
+        text = T(_("应用图标包“%1”？\n\n缺少的图标会自动使用官方默认图标。更换失败时自动回滚。"), pack.name),
         ok_text = _("一键更换"),
         ok_callback = function()
             local result, err = self.engine:applyPack(pack)
@@ -188,11 +187,11 @@ end
 function IconPackManager:restoreOriginal()
     local has_simpleui = self.engine:hasSimpleUI()
     local text = has_simpleui
-        and _("恢复备份中的原版 KOReader 与 Simple UI 图标？")
-        or _("恢复备份中的原版 KOReader 图标？")
+        and _("恢复官方默认的 KOReader 与 Simple UI 图标？")
+        or _("恢复官方默认的 KOReader 图标？")
     UIManager:show(ConfirmBox:new{
         text = text,
-        ok_text = _("恢复原版"),
+        ok_text = _("恢复默认"),
         ok_callback = function()
             local ok, err = self.engine:restoreOriginal()
             if not ok then
@@ -201,7 +200,11 @@ function IconPackManager:restoreOriginal()
             end
             self.settings:saveSetting("active_pack", nil)
             self.settings:flush()
-            UIManager:askForRestart(_("原版图标已恢复。重启后生效。"))
+            local msg = _("官方默认图标已恢复。重启后生效。")
+            if type(err) == "string" then
+                msg = msg .. "\n" .. err
+            end
+            UIManager:askForRestart(msg)
         end,
     })
 end
@@ -214,7 +217,6 @@ function IconPackManager:packMenuItems()
     if #packs == 0 then
         return {{ text = _("此文件夹中没有图标包文件夹或 ZIP"), enabled = false }}
     end
-    local backup_ok = self.engine:backupStatus()
     local has_simpleui = self.engine:hasSimpleUI()
     local items = {}
     for idx, pack in ipairs(packs) do
@@ -233,7 +235,6 @@ function IconPackManager:packMenuItems()
             end
             items[#items + 1] = {
                 text = text,
-                enabled_func = function() return backup_ok end,
                 callback = function() self:applyPack(pack_entry) end,
             }
         else
@@ -248,7 +249,6 @@ function IconPackManager:packMenuItems()
     end
     return items
 end
-
 
 function IconPackManager:detectionMenuItems()
     local packs, err = self.engine:scanFolder(self:selectedFolder())
@@ -292,15 +292,11 @@ function IconPackManager:detectionMenuItems()
 end
 
 function IconPackManager:statusText()
-    local backup_ok = self.engine:backupStatus()
-    if not backup_ok then
-        return _("状态：必须先备份原版图标")
-    end
     local active = self.settings:readSetting("active_pack")
     if active then
         return T(_("状态：正在使用 %1"), active)
     end
-    return _("状态：原版图标已备份")
+    return _("状态：官方默认图标")
 end
 
 function IconPackManager:addToMainMenu(menu_items)
@@ -332,23 +328,7 @@ function IconPackManager:addToMainMenu(menu_items)
                 separator = true,
             },
             {
-                text = _("备份原版图标"),
-                enabled_func = function()
-                    local ok = self.engine:backupStatus()
-                    return not ok
-                end,
-                keep_menu_open = true,
-                callback = function(touchmenu_instance)
-                    self:backupOriginal(touchmenu_instance)
-                end,
-                separator = true,
-            },
-            {
-                text = _("恢复原版图标"),
-                enabled_func = function()
-                    local ok = self.engine:backupStatus()
-                    return ok
-                end,
+                text = _("恢复官方默认图标"),
                 callback = function() self:restoreOriginal() end,
             },
         },
