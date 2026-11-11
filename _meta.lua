@@ -10,5 +10,5 @@ return {
     fullname = "图标包管理器",
     description = "扫描、应用和恢复 KOReader 与 Simple UI 图标包（内置官方图标包，支持安卓全平台）",
     author = "THE-XSX",
-    version = "1.3.0",
+    version = "1.3.1",
 }
