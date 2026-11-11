@@ -107,13 +107,13 @@ local SIMPLEUI_SLOTS = {
     { id = "sui_action_history",          key = "simpleui_action_history_icon",
       sources = { { "sui_action_history", PRIO_SUI_CANONICAL }, { "history", PRIO_SUI_LEGACY } } },
     { id = "sui_action_recent",           key = "simpleui_action_recent_icon",
-      sources = { { "sui_action_recent", PRIO_SUI_CANONICAL }, { "recent", PRIO_SUI_LEGACY } } },
+      sources = { { "sui_action_recent", PRIO_SUI_CANONICAL }, { "recent", PRIO_SUI_LEGACY }, { "last_document", PRIO_SUI_EXPLICIT } } },
     { id = "sui_action_continue",         key = "simpleui_action_continue_icon",
-      sources = { { "sui_action_continue", PRIO_SUI_CANONICAL }, { "continue", PRIO_SUI_LEGACY } } },
+      sources = { { "sui_action_continue", PRIO_SUI_CANONICAL }, { "continue", PRIO_SUI_LEGACY }, { "last_document", PRIO_SUI_EXPLICIT } } },
     { id = "sui_action_random_document",  key = "simpleui_action_random_document_icon",
       sources = { { "sui_action_random_document", PRIO_SUI_CANONICAL }, { "random", PRIO_SUI_LEGACY } } },
     { id = "sui_action_favorites",        key = "simpleui_action_favorites_icon",
-      sources = { { "sui_action_favorites", PRIO_SUI_CANONICAL }, { "star.empty", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+      sources = { { "sui_action_favorites", PRIO_SUI_CANONICAL }, { "favorites", PRIO_SUI_LEGACY }, { "star.empty", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
     { id = "sui_action_bookmark_browser", key = "simpleui_action_bookmark_browser_icon",
       sources = { { "sui_action_bookmark_browser", PRIO_SUI_CANONICAL }, { "bookmark", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
     { id = "sui_action_search_library",   key = "simpleui_action_search_library_icon",
@@ -673,6 +673,10 @@ function Engine:_isSimpleUIName(stem)
     return self:_inventory("simpleui").by_stem[stem] ~= nil
 end
 
+local function effectivePriority(base_priority, ext)
+    return base_priority * 2 - (ext == ".svg" and 1 or 0)
+end
+
 function Engine:_appendSimpleUIMappings(mappings, stem, ext, size, from_explicit_simpleui, only_mdlight_fallback)
     local target = self.targets.simpleui
     if target.mode == "settings" then
@@ -682,9 +686,9 @@ function Engine:_appendSimpleUIMappings(mappings, stem, ext, size, from_explicit
         end
         for _, def in ipairs(defs) do
             if not only_mdlight_fallback or def.from_mdlight then
-                local priority = def.priority
+                local base_priority = def.priority
                 if from_explicit_simpleui and def.from_mdlight then
-                    priority = def.explicit_priority
+                    base_priority = def.explicit_priority
                 end
                 mappings[#mappings + 1] = {
                     target = "simpleui",
@@ -692,7 +696,7 @@ function Engine:_appendSimpleUIMappings(mappings, stem, ext, size, from_explicit
                     canonical = def.canonical,
                     relative = def.slot_id .. ext,
                     size = size,
-                    priority = priority,
+                    priority = effectivePriority(base_priority, ext),
                     settings_key = def.key,
                 }
             end
@@ -706,7 +710,7 @@ function Engine:_appendSimpleUIMappings(mappings, stem, ext, size, from_explicit
                 canonical = canonical,
                 relative = stem .. ext,
                 size = size,
-                priority = 1,
+                priority = effectivePriority(1, ext),
             }
         end
     end
@@ -757,7 +761,7 @@ function Engine:_mapIconPath(path, size, allow_top_simpleui)
                 canonical = canonical,
                 relative = rel_stem .. rel_ext,
                 size = size,
-                priority = 1,
+                priority = effectivePriority(1, rel_ext),
             }
             if self.targets.simpleui.mode == "settings" then
                 self:_appendSimpleUIMappings(mappings, rel_stem, rel_ext, size, false, true)
@@ -783,7 +787,7 @@ function Engine:_mapIconPath(path, size, allow_top_simpleui)
             canonical = md_canonical,
             relative = stem .. ext,
             size = size,
-            priority = 1,
+            priority = effectivePriority(1, ext),
         }
     end
     if self:hasSimpleUI() then

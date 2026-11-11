@@ -191,8 +191,12 @@ for _, path in ipairs({
     "/modern_packs/mixed_priority/simpleui/appbar.settings.svg",
     "/modern_packs/mixed_priority/sui_action_collections.png",
     "/modern_packs/partial_png/sui_menu.png",
+    "/modern_packs/svg_and_png/appbar.menu.svg",
+    "/modern_packs/svg_and_png/appbar.menu.png",
+    "/modern_packs/svg_and_png/favorites.svg",
+    "/modern_packs/svg_and_png/last_document.svg",
     "/modern_packs/dup_slot/sui_menu.svg",
-    "/modern_packs/dup_slot/nested/sui_menu.png",
+    "/modern_packs/dup_slot/nested/sui_menu.svg",
 }) do
     addFile(path)
 end
@@ -435,9 +439,15 @@ assert(live_sui_store.data.simpleui_sysicon_sui_menu == nil, "restore clears sui
 assert(live_sui_store.data.simpleui_qa_custom_qa_1.label == "KeepMe", "restore keeps user custom QAs")
 assert(directories["/sdcard/koreader/settings/iconpackmanager/simpleui"] == nil, "empty simpleui staging removed")
 
--- Test 8: Duplicate detection at equal priority fails cleanly
+-- Test 8: Duplicate detection at equal priority fails cleanly; SVG beats PNG pair cleanly
 local dup_plan, dup_err = engine_android:inspectDirectory("/modern_packs/dup_slot")
-assert(dup_plan == nil and dup_err:find("重复图标"), "equal-priority sui_menu.svg + sui_menu.png rejected")
+assert(dup_plan == nil and dup_err:find("重复图标"), "equal-priority sui_menu.svg + nested/sui_menu.svg rejected")
+
+local pair_plan = assert(engine_android:inspectDirectory("/modern_packs/svg_and_png"))
+assert(pair_plan.mdlight == 1 and pair_plan.simpleui == 5, "svg beats paired png and favorites/last_document map")
+assert(pair_plan.simpleui_settings.simpleui_action_favorites_icon == "sui_action_favorites.svg")
+assert(pair_plan.simpleui_settings.simpleui_action_continue_icon == "sui_action_continue.svg")
+assert(pair_plan.simpleui_settings.simpleui_action_recent_icon == "sui_action_recent.svg")
 
 -- Test 9: Archive (ZIP) inspection, priority extraction, and wrapper vs subfolder simpleui/
 addFile("/zips/wrapper_mdlight.zip", 10, "zip")
