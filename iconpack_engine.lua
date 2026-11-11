@@ -18,6 +18,179 @@ local MAX_ICON_COUNT = 1000
 local MAX_ICON_SIZE = 2 * 1024 * 1024
 local MAX_TOTAL_SIZE = 32 * 1024 * 1024
 local TARGET_KEYS = { "mdlight", "simpleui" }
+local SUPPORTED_EXTS = { [".svg"] = true, [".png"] = true }
+
+local PRIO_SUI_CANONICAL = 1
+local PRIO_SUI_ALIAS     = 2
+local PRIO_SUI_LEGACY    = 3
+local PRIO_SUI_EXPLICIT  = 4
+local PRIO_MDLIGHT       = 5
+
+-- Modern Simple UI icon slots (stored in <settings_dir>/simpleui/sui_settings.lua).
+-- Priority order determines which file wins when a pack provides multiple
+-- overlapping names (e.g. both mdlight/appbar.menu.svg and simpleui/sui_menu.svg).
+local SIMPLEUI_SLOTS = {
+    -- Titlebar
+    { id = "sui_menu",   key = "simpleui_sysicon_sui_menu",
+      sources = { { "sui_menu", PRIO_SUI_CANONICAL }, { "more-options", PRIO_SUI_LEGACY }, { "appbar.menu", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_search", key = "simpleui_sysicon_sui_search",
+      sources = { { "sui_search", PRIO_SUI_CANONICAL }, { "appbar.search", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_back",   key = "simpleui_sysicon_sui_back",
+      sources = { { "sui_back", PRIO_SUI_CANONICAL }, { "back", PRIO_SUI_LEGACY }, { "chevron.left", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Browse Meta
+    { id = "sui_browse_normal", key = "simpleui_sysicon_sui_browse_normal",
+      sources = { { "sui_browse_normal", PRIO_SUI_CANONICAL }, { "default", PRIO_SUI_LEGACY }, { "custom", PRIO_SUI_EXPLICIT } } },
+    { id = "sui_browse_author", key = "simpleui_sysicon_sui_browse_author",
+      sources = { { "sui_browse_author", PRIO_SUI_CANONICAL }, { "author", PRIO_SUI_LEGACY } } },
+    { id = "sui_browse_series", key = "simpleui_sysicon_sui_browse_series",
+      sources = { { "sui_browse_series", PRIO_SUI_CANONICAL }, { "series", PRIO_SUI_LEGACY } } },
+    { id = "sui_browse_tags",   key = "simpleui_sysicon_sui_browse_tags",
+      sources = { { "sui_browse_tags", PRIO_SUI_CANONICAL }, { "tags", PRIO_SUI_LEGACY } } },
+    -- Pagination chevrons
+    { id = "sui_pager_prev",  key = "simpleui_sysicon_sui_pager_prev",
+      sources = { { "sui_pager_prev", PRIO_SUI_CANONICAL }, { "chevron.left", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_pager_next",  key = "simpleui_sysicon_sui_pager_next",
+      sources = { { "sui_pager_next", PRIO_SUI_CANONICAL }, { "chevron.right", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_pager_first", key = "simpleui_sysicon_sui_pager_first",
+      sources = { { "sui_pager_first", PRIO_SUI_CANONICAL }, { "chevron.first", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_pager_last",  key = "simpleui_sysicon_sui_pager_last",
+      sources = { { "sui_pager_last", PRIO_SUI_CANONICAL }, { "chevron.last", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Navpager arrows
+    { id = "sui_navpager_prev", key = "simpleui_sysicon_sui_navpager_prev",
+      sources = { { "sui_navpager_prev", PRIO_SUI_CANONICAL }, { "chevron.left", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_navpager_next", key = "simpleui_sysicon_sui_navpager_next",
+      sources = { { "sui_navpager_next", PRIO_SUI_CANONICAL }, { "chevron.right", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Collections back
+    { id = "sui_coll_back", key = "simpleui_sysicon_sui_coll_back",
+      sources = { { "sui_coll_back", PRIO_SUI_CANONICAL }, { "back.top", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Quick Settings Exit
+    { id = "sui_qs_exit", key = "simpleui_sysicon_sui_qs_exit",
+      sources = { { "sui_qs_exit", PRIO_SUI_CANONICAL }, { "exit", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Quick Actions Defaults
+    { id = "sui_qa_folder", key = "simpleui_sysicon_sui_qa_folder",
+      sources = { { "sui_qa_folder", PRIO_SUI_CANONICAL }, { "custom", PRIO_SUI_LEGACY } } },
+    { id = "sui_qa_plugin", key = "simpleui_sysicon_sui_qa_plugin",
+      sources = { { "sui_qa_plugin", PRIO_SUI_CANONICAL }, { "plugin", PRIO_SUI_LEGACY } } },
+    { id = "sui_qa_system", key = "simpleui_sysicon_sui_qa_system",
+      sources = { { "sui_qa_system", PRIO_SUI_CANONICAL }, { "appbar.settings", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_qa_group",  key = "simpleui_sysicon_sui_qa_group",
+      sources = { { "sui_qa_group", PRIO_SUI_CANONICAL }, { "group", PRIO_SUI_LEGACY } } },
+    -- Folder Covers
+    { id = "sui_fc_empty", key = "simpleui_sysicon_sui_fc_empty",
+      sources = { { "sui_fc_empty", PRIO_SUI_CANONICAL }, { "custom", PRIO_SUI_LEGACY } } },
+    -- Touch menu tab bar
+    { id = "sui_tab_main",        key = "simpleui_sysicon_sui_tab_main",        is_tab = true,
+      sources = { { "sui_tab_main", PRIO_SUI_CANONICAL }, { "appbar.menu", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_setting",     key = "simpleui_sysicon_sui_tab_setting",     is_tab = true,
+      sources = { { "sui_tab_setting", PRIO_SUI_CANONICAL }, { "appbar.settings", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_tools",       key = "simpleui_sysicon_sui_tab_tools",       is_tab = true,
+      sources = { { "sui_tab_tools", PRIO_SUI_CANONICAL }, { "appbar.tools", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_search",      key = "simpleui_sysicon_sui_tab_search",      is_tab = true,
+      sources = { { "sui_tab_search", PRIO_SUI_CANONICAL }, { "appbar.search", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_fm_settings", key = "simpleui_sysicon_sui_tab_fm_settings", is_tab = true,
+      sources = { { "sui_tab_fm_settings", PRIO_SUI_CANONICAL }, { "appbar.filebrowser", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_navigation",  key = "simpleui_sysicon_sui_tab_navigation",  is_tab = true,
+      sources = { { "sui_tab_navigation", PRIO_SUI_CANONICAL }, { "appbar.navigation", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_typeset",     key = "simpleui_sysicon_sui_tab_typeset",     is_tab = true,
+      sources = { { "sui_tab_typeset", PRIO_SUI_CANONICAL }, { "appbar.typeset", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_filebrowser", key = "simpleui_sysicon_sui_tab_filebrowser", is_tab = true,
+      sources = { { "sui_tab_filebrowser", PRIO_SUI_CANONICAL }, { "appbar.filebrowser", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_tab_qs_panel",    key = "simpleui_sysicon_sui_tab_qs_panel",    is_tab = true,
+      sources = { { "sui_tab_qs_panel", PRIO_SUI_CANONICAL }, { "settings", PRIO_SUI_LEGACY }, { "appbar.settings", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    -- Built-in Quick Actions
+    { id = "sui_action_library",          key = "simpleui_action_home_icon",
+      sources = { { "sui_action_library", PRIO_SUI_CANONICAL }, { "sui_action_home", PRIO_SUI_ALIAS }, { "library", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_homescreen",       key = "simpleui_action_homescreen_icon",
+      sources = { { "sui_action_homescreen", PRIO_SUI_CANONICAL }, { "home", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_collections",      key = "simpleui_action_collections_icon",
+      sources = { { "sui_action_collections", PRIO_SUI_CANONICAL }, { "collections", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_history",          key = "simpleui_action_history_icon",
+      sources = { { "sui_action_history", PRIO_SUI_CANONICAL }, { "history", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_recent",           key = "simpleui_action_recent_icon",
+      sources = { { "sui_action_recent", PRIO_SUI_CANONICAL }, { "recent", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_continue",         key = "simpleui_action_continue_icon",
+      sources = { { "sui_action_continue", PRIO_SUI_CANONICAL }, { "continue", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_random_document",  key = "simpleui_action_random_document_icon",
+      sources = { { "sui_action_random_document", PRIO_SUI_CANONICAL }, { "random", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_favorites",        key = "simpleui_action_favorites_icon",
+      sources = { { "sui_action_favorites", PRIO_SUI_CANONICAL }, { "star.empty", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_bookmark_browser", key = "simpleui_action_bookmark_browser_icon",
+      sources = { { "sui_action_bookmark_browser", PRIO_SUI_CANONICAL }, { "bookmark", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_search_library",   key = "simpleui_action_search_library_icon",
+      sources = { { "sui_action_search_library", PRIO_SUI_CANONICAL }, { "appbar.search", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_wifi_toggle",      key = "simpleui_action_wifi_toggle_icon",
+      sources = { { "sui_action_wifi_toggle", PRIO_SUI_CANONICAL }, { "wifi.open.100", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_frontlight",       key = "simpleui_action_frontlight_icon",
+      sources = { { "sui_action_frontlight", PRIO_SUI_CANONICAL }, { "frontlight", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_night_mode",       key = "simpleui_action_night_mode_icon",
+      sources = { { "sui_action_night_mode", PRIO_SUI_CANONICAL }, { "night", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_stats_calendar",   key = "simpleui_action_stats_calendar_icon",
+      sources = { { "sui_action_stats_calendar", PRIO_SUI_CANONICAL }, { "stats", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_power",            key = "simpleui_action_power_icon",
+      sources = { { "sui_action_power", PRIO_SUI_CANONICAL }, { "power", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_settings",         key = "simpleui_action_sui_settings_icon",
+      sources = { { "sui_action_settings", PRIO_SUI_CANONICAL }, { "sui_action_sui_settings", PRIO_SUI_ALIAS }, { "settings", PRIO_SUI_LEGACY }, { "appbar.settings", PRIO_MDLIGHT, PRIO_SUI_EXPLICIT, true } } },
+    { id = "sui_action_backup_export",    key = "simpleui_action_backup_export_icon",
+      sources = { { "sui_action_backup_export", PRIO_SUI_CANONICAL }, { "backup", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_browse_authors",   key = "simpleui_action_browse_authors_icon",
+      sources = { { "sui_action_browse_authors", PRIO_SUI_CANONICAL }, { "author", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_browse_series",    key = "simpleui_action_browse_series_icon",
+      sources = { { "sui_action_browse_series", PRIO_SUI_CANONICAL }, { "series", PRIO_SUI_LEGACY } } },
+    { id = "sui_action_browse_tags",      key = "simpleui_action_browse_tags_icon",
+      sources = { { "sui_action_browse_tags", PRIO_SUI_CANONICAL }, { "tags", PRIO_SUI_LEGACY } } },
+}
+
+local SIMPLEUI_SLOT_BY_ID = {}
+local SIMPLEUI_MAPPINGS_BY_NAME = {}
+local SIMPLEUI_SETTINGS_KEYS = {}
+local SIMPLEUI_TAB_SLOTS = {}
+
+for _, slot in ipairs(SIMPLEUI_SLOTS) do
+    slot.canonical = slot.id .. ".svg"
+    SIMPLEUI_SLOT_BY_ID[slot.id] = slot
+    SIMPLEUI_SETTINGS_KEYS[slot.key] = true
+    if slot.is_tab then
+        SIMPLEUI_TAB_SLOTS[#SIMPLEUI_TAB_SLOTS + 1] = slot.id
+    end
+    for _, src in ipairs(slot.sources) do
+        local name, priority, explicit_priority, from_mdlight = src[1], src[2], src[3], src[4]
+        local list = SIMPLEUI_MAPPINGS_BY_NAME[name]
+        if not list then
+            list = {}
+            SIMPLEUI_MAPPINGS_BY_NAME[name] = list
+        end
+        list[#list + 1] = {
+            slot_id = slot.id,
+            canonical = slot.canonical,
+            key = slot.key,
+            priority = priority,
+            explicit_priority = explicit_priority or priority,
+            from_mdlight = from_mdlight or false,
+        }
+    end
+end
+
+local function splitIconName(name)
+    if type(name) ~= "string" then
+        return nil
+    end
+    local stem, ext = name:match("^(.+)(%.[^./]+)$")
+    if not stem or stem == "" or not ext then
+        return nil
+    end
+    local ext_lower = ext:lower()
+    if not SUPPORTED_EXTS[ext_lower] then
+        return nil
+    end
+    return stem, ext_lower
+end
+
+local function sameDir(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then
+        return false
+    end
+    return a:gsub("/+$", "") == b:gsub("/+$", "")
+end
 
 local function join(path, name)
     return path .. "/" .. name
@@ -142,10 +315,11 @@ local PATH_MARKERS = {
     { marker = "plugins/simpleui.koplugin/icons/", target = "simpleui" },
     { marker = "simpleui.koplugin/icons/", target = "simpleui" },
     { marker = "simpleui/icons/", target = "simpleui" },
+    { marker = "simpleui/", target = "simpleui", check_top = true },
     { marker = "mdlight/", target = "mdlight" },
 }
 
-local function mapArchivePath(path)
+local function mapArchivePath(path, allow_top_simpleui)
     local lower = path:lower()
     for _, item in ipairs(PATH_MARKERS) do
         local start_at = 1
@@ -154,7 +328,8 @@ local function mapArchivePath(path)
             if not pos then
                 break
             end
-            if pos == 1 or lower:sub(pos - 1, pos - 1) == "/" then
+            if (pos == 1 or lower:sub(pos - 1, pos - 1) == "/")
+                    and (not item.check_top or pos > 1 or allow_top_simpleui ~= false) then
                 local relative = path:sub(pos + #item.marker)
                 if relative ~= "" then
                     return item.target, relative
@@ -182,8 +357,8 @@ local function isEmptyDir(path)
     return true
 end
 
--- Collects SVG names (relative to root) into `names`; missing roots are ignored.
-local function listSvgs(root, names, recursive)
+-- Collects icon names (relative to root) into `names`; missing roots are ignored.
+local function listIcons(root, names, recursive)
     local function scan(dir, prefix)
         local ok, iter, dir_obj = pcall(lfs.dir, dir)
         if not ok then
@@ -196,7 +371,7 @@ local function listSvgs(root, names, recursive)
                 local mode = fileMode(path)
                 if mode == "directory" and recursive then
                     scan(path, relative)
-                elseif mode == "file" and name:lower():sub(-4) == ".svg" then
+                elseif mode == "file" and splitIconName(name) then
                     names[relative] = true
                 end
             end
@@ -210,7 +385,9 @@ end
 
 -- Simple UI may live in the user plugin dir (<data>/plugins, e.g. /sdcard/koreader/plugins
 -- on Android), in the install dir (Kindle/Kobo, where both are the same), or next to us.
-local function findSimpleUIIcons(data_dir, install_dir, plugin_dir)
+-- Modern Simple UI (with infra/sui_store.lua) stores icon overrides in sui_settings.lua
+-- rather than reading simpleui.koplugin/icons/*.svg; older builds read icons/ directly.
+local function findSimpleUI(data_dir, install_dir, plugin_dir)
     local candidates = {
         join(data_dir, "plugins/simpleui.koplugin"),
         join(install_dir, "plugins/simpleui.koplugin"),
@@ -221,10 +398,16 @@ local function findSimpleUIIcons(data_dir, install_dir, plugin_dir)
     end
     for _, dir in ipairs(candidates) do
         local icons = join(dir, "icons")
-        -- The "-previous" check keeps an interrupted swap recoverable on next start.
-        if fileMode(icons) == "directory"
-                or fileMode(icons .. ".iconpackmanager-previous") == "directory" then
-            return icons
+        local has_store = fileMode(join(dir, "infra/sui_store.lua")) == "file"
+        -- The "-previous" check keeps an interrupted legacy swap recoverable on next start.
+        local has_icons = fileMode(icons) == "directory"
+            or fileMode(icons .. ".iconpackmanager-previous") == "directory"
+        if has_store or has_icons then
+            return {
+                root = dir,
+                icons_dir = icons,
+                mode = has_store and "settings" or "legacy",
+            }
         end
     end
 end
@@ -241,16 +424,33 @@ function Engine:new(options)
     local install_dir = options.install_dir or "."
     local state_root = join(settings_dir, "iconpackmanager")
     local official_root = options.official_root or join(plugin_dir, "official")
+    local simpleui_info = findSimpleUI(data_dir, install_dir, plugin_dir)
+    local simpleui_target = {
+        official = join(official_root, "simpleui"),
+    }
+    if simpleui_info then
+        simpleui_target.mode = simpleui_info.mode
+        simpleui_target.plugin_icons = simpleui_info.icons_dir
+        if simpleui_info.mode == "settings" then
+            simpleui_target.live = join(state_root, "simpleui")
+            simpleui_target.settings_file = join(settings_dir, "simpleui/sui_settings.lua")
+        else
+            simpleui_target.live = simpleui_info.icons_dir
+        end
+    end
     local object = {
         data_dir = data_dir,
+        settings_dir = settings_dir,
         install_dir = install_dir,
         plugin_dir = plugin_dir,
         state_root = state_root,
         official_root = official_root,
         legacy_backup_root = join(state_root, "original"),
         managed_file = join(state_root, "managed_icons.txt"),
+        managed_simpleui_file = join(state_root, "managed_simpleui.txt"),
         extraction_root = join(state_root, "extracted"),
         transaction_marker = join(state_root, ".transaction"),
+        sui_store = options.sui_store,
         targets = {
             mdlight = {
                 -- KOReader's IconWidget looks here before resources/icons/mdlight,
@@ -260,10 +460,7 @@ function Engine:new(options)
                 data_builtin = join(data_dir, "resources/icons/mdlight"),
                 official = join(official_root, "mdlight"),
             },
-            simpleui = {
-                live = findSimpleUIIcons(data_dir, install_dir, plugin_dir),
-                official = join(official_root, "simpleui"),
-            },
+            simpleui = simpleui_target,
         },
         _inventories = {},
     }
@@ -277,6 +474,23 @@ function Engine:new(options)
     return object
 end
 
+local function buildInventoryFromNames(names)
+    local canonical = {}
+    local by_stem = {}
+    -- Process .svg before .png so .svg stays the canonical display name when both exist.
+    local ordered = sortedKeys(names)
+    for _, pass_ext in ipairs({ ".svg", ".png" }) do
+        for _, rel in ipairs(ordered) do
+            local stem, ext = splitIconName(rel)
+            if stem and ext == pass_ext and not by_stem[stem] then
+                canonical[rel] = true
+                by_stem[stem] = rel
+            end
+        end
+    end
+    return { canonical = canonical, by_stem = by_stem }
+end
+
 -- Icon names a pack may replace: the bundled official set plus whatever the
 -- current installation ships (covers version drift in either direction).
 function Engine:_inventory(target_key)
@@ -285,28 +499,44 @@ function Engine:_inventory(target_key)
         return cached
     end
     local target = self.targets[target_key]
-    local names = {}
+    local inv
     if target_key == "mdlight" then
         -- IconWidget resolves user icons by bare name, so only flat names count.
-        listSvgs(target.official, names, false)
-        listSvgs(target.builtin, names, false)
-        listSvgs(target.data_builtin, names, false)
-    else
-        listSvgs(target.official, names, true)
-        if target.live then
-            listSvgs(target.live, names, true)
+        local names = {}
+        listIcons(target.official, names, false)
+        listIcons(target.builtin, names, false)
+        listIcons(target.data_builtin, names, false)
+        inv = buildInventoryFromNames(names)
+    elseif target.mode == "settings" then
+        local canonical = {}
+        local by_stem = {}
+        for _, slot in ipairs(SIMPLEUI_SLOTS) do
+            canonical[slot.canonical] = true
+            by_stem[slot.id] = slot.canonical
         end
+        inv = { canonical = canonical, by_stem = by_stem }
+    else
+        local names = {}
+        listIcons(target.official, names, true)
+        if target.live then
+            listIcons(target.live, names, true)
+        end
+        inv = buildInventoryFromNames(names)
     end
-    self._inventories[target_key] = names
-    return names
+    self._inventories[target_key] = inv
+    return inv
 end
 
 function Engine:hasSimpleUI()
     return self.targets.simpleui.live ~= nil
 end
 
+function Engine:simpleUIMode()
+    return self.targets.simpleui.mode
+end
+
 function Engine:simpleUIPath()
-    return self.targets.simpleui.live
+    return self.targets.simpleui.plugin_icons or self.targets.simpleui.live
 end
 
 function Engine:userIconsPath()
@@ -342,25 +572,88 @@ function Engine:_newPlan()
     }
 end
 
-function Engine:_finalizePlan(plan, destinations)
+function Engine:_finalizePlan(plan, resolved, duplicate_err)
+    if duplicate_err then
+        return nil, duplicate_err
+    end
     plan.unknown = sortedKeys(plan.unknown)
+
+    local covered = {}
     local managed = {}
-    for destination_key in pairs(destinations) do
-        local relative = destination_key:match("^mdlight/(.+)$")
-        if relative then
-            managed[#managed + 1] = relative
+    local simpleui_settings = {}
+    local managed_simpleui = {}
+    local seen_sources = {}
+    local entries = {}
+    local archive_sources = {}
+
+    local sorted_dest_keys = sortedKeys(resolved)
+    for _, destination_key in ipairs(sorted_dest_keys) do
+        local item = resolved[destination_key]
+        covered[item.target .. "/" .. item.canonical] = true
+        plan[item.target] = plan[item.target] + 1
+        plan.total = plan.total + 1
+
+        local src_id = item.source or item.archive_path
+        if src_id and not seen_sources[src_id] then
+            seen_sources[src_id] = true
+            plan.bytes = plan.bytes + (item.size or 0)
+        end
+
+        if item.target == "mdlight" then
+            managed[#managed + 1] = item.relative
+        elseif item.target == "simpleui" and item.settings_key then
+            simpleui_settings[item.settings_key] = item.relative
+            managed_simpleui[#managed_simpleui + 1] = item.settings_key
+        end
+
+        if item.source then
+            entries[#entries + 1] = {
+                source = item.source,
+                target = item.target,
+                relative = item.relative,
+                size = item.size,
+            }
+        elseif item.archive_path then
+            local rec = archive_sources[item.archive_path]
+            if not rec then
+                rec = { size = item.size, destinations = {} }
+                archive_sources[item.archive_path] = rec
+            end
+            rec.destinations[#rec.destinations + 1] = {
+                target = item.target,
+                relative = item.relative,
+                size = item.size,
+            }
         end
     end
+
+    if plan.total == 0 then
+        return nil, "未找到可匹配当前安装的 SVG/PNG 图标"
+    end
+    if plan.bytes > MAX_TOTAL_SIZE then
+        return nil, "图标包超过安全大小限制"
+    end
+
     table.sort(managed)
+    table.sort(managed_simpleui)
     plan.managed = managed
+    plan.simpleui_settings = simpleui_settings
+    plan.managed_simpleui = managed_simpleui
+    if next(entries) then
+        plan.entries = entries
+    end
+    if next(archive_sources) then
+        plan.archive_sources = archive_sources
+    end
+
     local is_complete = true
     for _, target_key in ipairs(self:_activeTargets()) do
-        local inventory = self:_inventory(target_key)
+        local canonical = self:_inventory(target_key).canonical
         local missing = {}
-        for relative in pairs(inventory) do
+        for name in pairs(canonical) do
             plan.expected[target_key] = plan.expected[target_key] + 1
-            if not destinations[target_key .. "/" .. relative] then
-                missing[#missing + 1] = relative
+            if not covered[target_key .. "/" .. name] then
+                missing[#missing + 1] = name
             end
         end
         table.sort(missing, function(a, b) return a:lower() < b:lower() end)
@@ -373,19 +666,65 @@ function Engine:_finalizePlan(plan, destinations)
     return plan
 end
 
-function Engine:_mapIconPath(path, size)
+function Engine:_isSimpleUIName(stem)
+    if self.targets.simpleui.mode == "settings" then
+        return SIMPLEUI_MAPPINGS_BY_NAME[stem] ~= nil
+    end
+    return self:_inventory("simpleui").by_stem[stem] ~= nil
+end
+
+function Engine:_appendSimpleUIMappings(mappings, stem, ext, size, from_explicit_simpleui, only_mdlight_fallback)
+    local target = self.targets.simpleui
+    if target.mode == "settings" then
+        local defs = SIMPLEUI_MAPPINGS_BY_NAME[stem]
+        if not defs then
+            return
+        end
+        for _, def in ipairs(defs) do
+            if not only_mdlight_fallback or def.from_mdlight then
+                local priority = def.priority
+                if from_explicit_simpleui and def.from_mdlight then
+                    priority = def.explicit_priority
+                end
+                mappings[#mappings + 1] = {
+                    target = "simpleui",
+                    slot_key = def.slot_id,
+                    canonical = def.canonical,
+                    relative = def.slot_id .. ext,
+                    size = size,
+                    priority = priority,
+                    settings_key = def.key,
+                }
+            end
+        end
+    else
+        local canonical = self:_inventory("simpleui").by_stem[stem]
+        if canonical then
+            mappings[#mappings + 1] = {
+                target = "simpleui",
+                slot_key = canonical,
+                canonical = canonical,
+                relative = stem .. ext,
+                size = size,
+                priority = 1,
+            }
+        end
+    end
+end
+
+function Engine:_mapIconPath(path, size, allow_top_simpleui)
     local safe_path, path_err = safeArchivePath(path)
     if not safe_path then
         return nil, path_err
     end
-    if safe_path:lower():sub(-4) ~= ".svg" then
+    if not splitIconName(safe_path) then
         return false
     end
     if size < 0 or size > MAX_ICON_SIZE then
         return nil, "图标文件过大：" .. safe_path
     end
 
-    local explicit_target, explicit_relative = mapArchivePath(safe_path)
+    local explicit_target, explicit_relative = mapArchivePath(safe_path, allow_top_simpleui)
     if explicit_target then
         if explicit_target == "simpleui" and not self:hasSimpleUI() then
             return false
@@ -394,22 +733,61 @@ function Engine:_mapIconPath(path, size)
         if not safe_relative then
             return nil, relative_err
         end
-        if not self:_inventory(explicit_target)[safe_relative] then
+        local rel_stem, rel_ext = splitIconName(safe_relative)
+        if not rel_stem then
             return false
         end
-        return {{ target = explicit_target, relative = safe_relative, size = size }}
+        local mappings = {}
+        if explicit_target == "simpleui" then
+            if self.targets.simpleui.mode == "settings" then
+                if not rel_stem:find("/", 1, true) then
+                    self:_appendSimpleUIMappings(mappings, rel_stem, rel_ext, size, true, false)
+                end
+            else
+                self:_appendSimpleUIMappings(mappings, rel_stem, rel_ext, size, true, false)
+            end
+        else
+            local canonical = self:_inventory("mdlight").by_stem[rel_stem]
+            if not canonical then
+                return false
+            end
+            mappings[#mappings + 1] = {
+                target = "mdlight",
+                slot_key = canonical,
+                canonical = canonical,
+                relative = rel_stem .. rel_ext,
+                size = size,
+                priority = 1,
+            }
+            if self.targets.simpleui.mode == "settings" then
+                self:_appendSimpleUIMappings(mappings, rel_stem, rel_ext, size, false, true)
+            end
+        end
+        if #mappings == 0 then
+            return false
+        end
+        return mappings
     end
 
     local filename = basename(safe_path)
+    local stem, ext = splitIconName(filename)
+    if not stem then
+        return false
+    end
     local mappings = {}
-    for _, target_key in ipairs(self:_activeTargets()) do
-        if self:_inventory(target_key)[filename] then
-            mappings[#mappings + 1] = {
-                target = target_key,
-                relative = filename,
-                size = size,
-            }
-        end
+    local md_canonical = self:_inventory("mdlight").by_stem[stem]
+    if md_canonical then
+        mappings[#mappings + 1] = {
+            target = "mdlight",
+            slot_key = md_canonical,
+            canonical = md_canonical,
+            relative = stem .. ext,
+            size = size,
+            priority = 1,
+        }
+    end
+    if self:hasSimpleUI() then
+        self:_appendSimpleUIMappings(mappings, stem, ext, size, false, false)
     end
     if #mappings == 0 then
         return false
@@ -417,35 +795,161 @@ function Engine:_mapIconPath(path, size)
     return mappings
 end
 
-function Engine:_readManaged()
-    local managed = {}
-    local content = util.readFromFile and util.readFromFile(self.managed_file, "rb")
+local function readListFile(path, allow_slash)
+    local values = {}
+    local content = util.readFromFile and util.readFromFile(path, "rb")
     if content then
         for line in content:gmatch("[^\r\n]+") do
             local safe = safeArchivePath(line)
-            if safe and not safe:find("/", 1, true) then
-                managed[safe] = true
+            if safe and (allow_slash or not safe:find("/", 1, true)) then
+                values[safe] = true
             end
         end
     end
-    return managed
+    return values
 end
 
-function Engine:_writeManaged(managed)
-    local names = sortedKeys(managed)
+function Engine:_writeListFile(path, values)
+    local names = sortedKeys(values)
     if #names == 0 then
-        os.remove(self.managed_file)
+        os.remove(path)
         return true
     end
     local ok, err = util.makePath(self.state_root)
     if not ok then
         return nil, err
     end
-    ok, err = util.writeToFile(table.concat(names, "\n") .. "\n", self.managed_file)
+    ok, err = util.writeToFile(table.concat(names, "\n") .. "\n", path)
     if not ok then
         return nil, err or "无法写入图标记录"
     end
     return true
+end
+
+function Engine:_readManaged()
+    return readListFile(self.managed_file, false)
+end
+
+function Engine:_writeManaged(managed)
+    return self:_writeListFile(self.managed_file, managed)
+end
+
+function Engine:_readManagedSimpleUI()
+    return readListFile(self.managed_simpleui_file, false)
+end
+
+function Engine:_writeManagedSimpleUI(managed)
+    return self:_writeListFile(self.managed_simpleui_file, managed)
+end
+
+function Engine:_resolveLiveSuiStore()
+    if self.sui_store == false then
+        return nil
+    end
+    if self.sui_store then
+        return self.sui_store
+    end
+    local loaded = package.loaded["infra/sui_store"]
+    if type(loaded) ~= "table" then
+        return nil
+    end
+    local ds = package.loaded["datastorage"]
+    if ds and type(ds.getSettingsDir) == "function" then
+        local ds_dir = ds:getSettingsDir()
+        if ds_dir == "./settings" and self.data_dir:sub(1, 1) == "/" then
+            ds_dir = join(self.data_dir, "settings")
+        end
+        if not sameDir(ds_dir, self.settings_dir) then
+            return nil
+        end
+    end
+    return loaded
+end
+
+function Engine:_syncSimpleUISettings(new_entries, reset_all_slots)
+    local target = self.targets.simpleui
+    if target.mode ~= "settings" or not target.settings_file then
+        return true
+    end
+
+    local previous_managed = self:_readManagedSimpleUI()
+    local next_values = {}
+    for key, relative in pairs(new_entries or {}) do
+        next_values[key] = join(target.live, relative)
+    end
+
+    local keys_to_clear = {}
+    for key in pairs(previous_managed) do
+        if next_values[key] == nil then
+            keys_to_clear[key] = true
+        end
+    end
+    if reset_all_slots then
+        for key in pairs(SIMPLEUI_SETTINGS_KEYS) do
+            if next_values[key] == nil then
+                keys_to_clear[key] = true
+            end
+        end
+    end
+
+    local live_store = self:_resolveLiveSuiStore()
+    if live_store and type(live_store.setNoFlush) == "function"
+            and type(live_store.delNoFlush) == "function"
+            and type(live_store.flush) == "function" then
+        local ok_dir, dir_err = util.makePath(ffiUtil.dirname(target.settings_file))
+        if not ok_dir then
+            return nil, dir_err
+        end
+        for key in pairs(keys_to_clear) do
+            live_store:delNoFlush(key)
+        end
+        for key, value in pairs(next_values) do
+            live_store:setNoFlush(key, value)
+        end
+        live_store:flush()
+    elseif next(keys_to_clear) ~= nil or next(next_values) ~= nil
+            or fileMode(target.settings_file) == "file" then
+        local ok_ls, LuaSettings = pcall(require, "luasettings")
+        if not ok_ls or not LuaSettings then
+            return nil, "无法加载 LuaSettings 模块"
+        end
+        local ok_dir, dir_err = util.makePath(ffiUtil.dirname(target.settings_file))
+        if not ok_dir then
+            return nil, dir_err
+        end
+        local store = LuaSettings:open(target.settings_file)
+        for key in pairs(keys_to_clear) do
+            store:delSetting(key)
+        end
+        for key, value in pairs(next_values) do
+            store:saveSetting(key, value)
+        end
+        store:flush()
+    end
+
+    local new_managed = {}
+    for key in pairs(next_values) do
+        new_managed[key] = true
+    end
+    return self:_writeManagedSimpleUI(new_managed)
+end
+
+-- Best-effort cleanup of legacy v1.2 overrides inside simpleui.koplugin/icons/.
+function Engine:_restorePluginIcons()
+    local target = self.targets.simpleui
+    if target.mode ~= "settings" or not target.plugin_icons
+            or fileMode(target.official) ~= "directory"
+            or fileMode(target.plugin_icons) ~= "directory" then
+        return
+    end
+    local official_files = listIcons(target.official, {}, false)
+    for name in pairs(official_files) do
+        local src = join(target.official, name)
+        local dst = join(target.plugin_icons, name)
+        if fileMode(dst) == "file" then
+            pcall(ffiUtil.copyFile, src, dst)
+        end
+    end
 end
 
 -- Number of icons in each bundled official set.
@@ -453,7 +957,7 @@ function Engine:officialStatus()
     local result = {}
     for _, key in ipairs(TARGET_KEYS) do
         local count = 0
-        for _ in pairs(listSvgs(self.targets[key].official, {}, true)) do
+        for _ in pairs(listIcons(self.targets[key].official, {}, true)) do
             count = count + 1
         end
         result[key] = count
@@ -482,14 +986,68 @@ function Engine:_restoreLegacyBuiltin()
     return true
 end
 
-function Engine:_mapEntry(entry)
-    local mappings, err = self:_mapIconPath(entry.path, tonumber(entry.size))
+function Engine:_mapEntry(entry, allow_top_simpleui)
+    local mappings, err = self:_mapIconPath(entry.path, tonumber(entry.size), allow_top_simpleui)
     if mappings then
         for _, mapped in ipairs(mappings) do
             mapped.archive_path = entry.path
         end
     end
     return mappings, err
+end
+
+local function isWrapperTopSimpleUI(items, is_sui_name)
+    if #items == 0 then
+        return true
+    end
+    local has_mdlight_only = false
+    for _, item in ipairs(items) do
+        local lower = item.path:lower()
+        if lower:sub(1, 9) ~= "simpleui/" then
+            return true
+        end
+        local rest = item.path:sub(10)
+        local stem = splitIconName(rest)
+        if stem and not stem:find("/", 1, true) and not is_sui_name(stem) then
+            has_mdlight_only = true
+        end
+    end
+    return not has_mdlight_only
+end
+
+function Engine:_buildPlan(items, dup_prefix, allow_top_simpleui)
+    local plan = self:_newPlan()
+    local resolved = {}
+    local source_count = 0
+    local raw_bytes = 0
+
+    for _, item in ipairs(items) do
+        local mappings, map_err = self:_mapIconPath(item.path, item.size, allow_top_simpleui)
+        if mappings == nil then
+            return nil, map_err
+        elseif mappings then
+            source_count = source_count + 1
+            raw_bytes = raw_bytes + item.size
+            if source_count > MAX_ICON_COUNT or raw_bytes > MAX_TOTAL_SIZE then
+                return nil, "图标包超过安全大小限制"
+            end
+            for _, mapped in ipairs(mappings) do
+                mapped.source = item.source
+                mapped.archive_path = item.archive_path
+                local dest_key = mapped.target .. "/" .. mapped.slot_key
+                local existing = resolved[dest_key]
+                if not existing or mapped.priority < existing.priority then
+                    resolved[dest_key] = mapped
+                elseif mapped.priority == existing.priority then
+                    return nil, dup_prefix .. mapped.canonical
+                end
+            end
+        else
+            plan.unknown[item.path] = true
+        end
+    end
+
+    return self:_finalizePlan(plan, resolved)
 end
 
 function Engine:inspectArchive(zip_path)
@@ -502,39 +1060,27 @@ function Engine:inspectArchive(zip_path)
         archive:close()
         return nil, err
     end
-    local plan = self:_newPlan()
-    local destinations = {}
-    local source_count = 0
+    local items = {}
     for entry in archive:iterate() do
         local safe_path, path_err = safeArchivePath(entry.path)
         if not safe_path then
             archive:close()
             return nil, path_err
         end
-        if entry.mode == "file" then
-            local mappings, map_err = self:_mapEntry(entry)
-            if mappings == nil then
+        if entry.mode == "file" and splitIconName(safe_path) then
+            local size = tonumber(entry.size) or -1
+            if size < 0 or size > MAX_ICON_SIZE then
                 archive:close()
-                return nil, map_err
-            elseif mappings then
-                source_count = source_count + 1
-                plan.bytes = plan.bytes + tonumber(entry.size)
-                for _, mapped in ipairs(mappings) do
-                    local destination_key = mapped.target .. "/" .. mapped.relative
-                    if destinations[destination_key] then
-                        archive:close()
-                        return nil, "ZIP 内含重复图标：" .. mapped.relative
-                    end
-                    destinations[destination_key] = true
-                    plan[mapped.target] = plan[mapped.target] + 1
-                    plan.total = plan.total + 1
-                end
-                if source_count > MAX_ICON_COUNT or plan.bytes > MAX_TOTAL_SIZE then
-                    archive:close()
-                    return nil, "图标包超过安全大小限制"
-                end
-            elseif safe_path:lower():sub(-4) == ".svg" then
-                plan.unknown[safe_path] = true
+                return nil, "图标文件过大：" .. safe_path
+            end
+            items[#items + 1] = {
+                path = safe_path,
+                archive_path = entry.path,
+                size = size,
+            }
+            if #items > MAX_ICON_COUNT * 4 then
+                archive:close()
+                return nil, "图标包超过安全大小限制"
             end
         end
     end
@@ -543,20 +1089,18 @@ function Engine:inspectArchive(zip_path)
     if archive_err then
         return nil, archive_err
     end
-    if plan.total == 0 then
-        return nil, "未找到可匹配当前安装的 SVG 图标"
-    end
-    return self:_finalizePlan(plan, destinations)
+
+    local allow_top_simpleui = isWrapperTopSimpleUI(items, function(stem)
+        return self:_isSimpleUIName(stem)
+    end)
+    return self:_buildPlan(items, "ZIP 内含重复图标：", allow_top_simpleui)
 end
 
 function Engine:inspectDirectory(pack_path)
     if fileMode(pack_path) ~= "directory" then
         return nil, "图标包文件夹不存在"
     end
-    local plan = self:_newPlan()
-    local destinations = {}
-    local source_count = 0
-    plan.entries = {}
+    local items = {}
 
     local function scan(dir, prefix)
         local ok, iter, dir_obj = pcall(lfs.dir, dir)
@@ -573,33 +1117,14 @@ function Engine:inspectDirectory(pack_path)
                     if not child_ok then
                         return nil, child_err
                     end
-                elseif attr and attr.mode == "file" and name:lower():sub(-4) == ".svg" then
-                    local mappings, map_err = self:_mapIconPath(relative, attr.size or 0)
-                    if mappings == nil then
-                        return nil, map_err
-                    elseif mappings then
-                        source_count = source_count + 1
-                        plan.bytes = plan.bytes + (attr.size or 0)
-                        for _, mapped in ipairs(mappings) do
-                            local destination_key = mapped.target .. "/" .. mapped.relative
-                            if destinations[destination_key] then
-                                return nil, "文件夹内含重复图标：" .. mapped.relative
-                            end
-                            destinations[destination_key] = true
-                            plan[mapped.target] = plan[mapped.target] + 1
-                            plan.total = plan.total + 1
-                            plan.entries[#plan.entries + 1] = {
-                                source = path,
-                                target = mapped.target,
-                                relative = mapped.relative,
-                                size = mapped.size,
-                            }
-                        end
-                        if source_count > MAX_ICON_COUNT or plan.bytes > MAX_TOTAL_SIZE then
-                            return nil, "图标包超过安全大小限制"
-                        end
-                    else
-                        plan.unknown[relative] = true
+                elseif attr and attr.mode == "file" and splitIconName(name) then
+                    items[#items + 1] = {
+                        path = relative,
+                        source = path,
+                        size = attr.size or 0,
+                    }
+                    if #items > MAX_ICON_COUNT * 4 then
+                        return nil, "图标包超过安全大小限制"
                     end
                 end
             end
@@ -611,19 +1136,16 @@ function Engine:inspectDirectory(pack_path)
     if not ok then
         return nil, tostring(err)
     end
-    if plan.total == 0 then
-        return nil, "未找到可匹配当前安装的 SVG 图标"
-    end
-    return self:_finalizePlan(plan, destinations)
+    return self:_buildPlan(items, "文件夹内含重复图标：", true)
 end
 
-local function hasDirectSvg(folder)
+local function hasDirectIcon(folder)
     local ok, iter, dir_obj = pcall(lfs.dir, folder)
     if not ok then
         return false
     end
     for name in iter, dir_obj do
-        if name ~= "." and name ~= ".." and name:lower():sub(-4) == ".svg"
+        if name ~= "." and name ~= ".." and splitIconName(name)
                 and fileMode(join(folder, name)) == "file" then
             return true
         end
@@ -652,7 +1174,7 @@ local function hasStructuredChild(folder)
     return false
 end
 
-local function directoryContainsSvg(folder)
+local function directoryContainsIcon(folder)
     local found = false
     local function scan(dir)
         local ok, iter, dir_obj = pcall(lfs.dir, dir)
@@ -664,7 +1186,7 @@ local function directoryContainsSvg(folder)
                 local mode = fileMode(path)
                 if mode == "directory" then
                     scan(path)
-                elseif mode == "file" and name:lower():sub(-4) == ".svg" then
+                elseif mode == "file" and splitIconName(name) then
                     found = true
                 end
             end
@@ -695,7 +1217,7 @@ function Engine:scanFolder(folder)
         return nil, "无法读取文件夹：" .. tostring(iter)
     end
 
-    local current_is_pack = hasDirectSvg(folder) or hasStructuredChild(folder)
+    local current_is_pack = hasDirectIcon(folder) or hasStructuredChild(folder)
     if current_is_pack then
         self:_addDirectoryPack(packs, basename(folder), folder)
     end
@@ -714,8 +1236,8 @@ function Engine:scanFolder(folder)
                     error = err,
                 }
             elseif mode == "directory" and not current_is_pack
-                    and not self:isReservedFolder(path) and directoryContainsSvg(path) then
-                if hasDirectSvg(path) or hasStructuredChild(path) then
+                    and not self:isReservedFolder(path) and directoryContainsIcon(path) then
+                if hasDirectIcon(path) or hasStructuredChild(path) then
                     self:_addDirectoryPack(packs, name, path)
                 else
                     local child_ok, child_iter, child_obj = pcall(lfs.dir, path)
@@ -724,7 +1246,7 @@ function Engine:scanFolder(folder)
                             local child_path = join(path, child_name)
                             if child_name ~= "." and child_name ~= ".."
                                     and fileMode(child_path) == "directory"
-                                    and directoryContainsSvg(child_path) then
+                                    and directoryContainsIcon(child_path) then
                                 self:_addDirectoryPack(packs, name .. "/" .. child_name, child_path)
                             end
                         end
@@ -750,17 +1272,19 @@ function Engine:_extractArchive(zip_path, expected_plan)
         removeTree(self.extraction_root)
         return nil, err
     end
+    local archive_sources = expected_plan.archive_sources or {}
     local extracted = { mdlight = 0, simpleui = 0, total = 0 }
     for entry in archive:iterate() do
         if entry.mode == "file" then
-            local mappings, map_err = self:_mapEntry(entry)
-            if mappings == nil then
-                archive:close()
-                removeTree(self.extraction_root)
-                return nil, map_err
-            elseif mappings then
+            local source_info = archive_sources[entry.path]
+            if source_info then
+                if tonumber(entry.size) ~= source_info.size then
+                    archive:close()
+                    removeTree(self.extraction_root)
+                    return nil, "ZIP 在校验后发生变化，请重新扫描"
+                end
                 local first_destination
-                for index, mapped in ipairs(mappings) do
+                for index, mapped in ipairs(source_info.destinations) do
                     local destination = join(join(self.extraction_root, mapped.target), mapped.relative)
                     ok, err = util.makePath(ffiUtil.dirname(destination))
                     if not ok then
@@ -856,7 +1380,7 @@ end
 
 -- Builds <live>.iconpackmanager-next for every active target:
 --   mdlight:  current <data>/icons minus files we installed earlier (user's own icons survive)
---   simpleui: current icons with the bundled official set laid over them
+--   simpleui: settings mode uses clean <state>/simpleui stage; legacy mode overlays official icons
 -- then (optionally) overlays the freshly extracted pack.
 function Engine:_prepareStages(with_overlay)
     local managed = self:_readManaged()
@@ -879,13 +1403,28 @@ function Engine:_prepareStages(with_overlay)
                     return nil, "无法移除旧图标：" .. name
                 end
             end
+            if self.targets.simpleui.mode == "settings" then
+                for _, slot_id in ipairs(SIMPLEUI_TAB_SLOTS) do
+                    for ext in pairs(SUPPORTED_EXTS) do
+                        local tab_file = join(target.next, "simpleui_" .. slot_id .. ext)
+                        if fileMode(tab_file) == "file" then
+                            os.remove(tab_file)
+                        end
+                    end
+                end
+            end
         elseif key == "simpleui" then
-            if fileMode(target.official) == "directory" then
-                ok, err = copyTree(target.official, target.next)
-            elseif fileMode(target.live) == "directory" then
-                ok, err = copyTree(target.live, target.next)
-            else
+            if target.mode == "settings" then
                 ok, err = util.makePath(target.next)
+            else
+                if fileMode(target.live) == "directory" then
+                    ok, err = copyTree(target.live, target.next)
+                else
+                    ok, err = util.makePath(target.next)
+                end
+                if ok and fileMode(target.official) == "directory" then
+                    ok, err = copyTree(target.official, target.next)
+                end
             end
             if not ok then
                 return nil, err
@@ -938,6 +1477,18 @@ function Engine:recoverTransaction()
             removeTree(target.next)
         end
     end
+    -- Also recover any interrupted swap of simpleui.koplugin/icons left by v1.2.
+    local plugin_icons = self.targets.simpleui.plugin_icons
+    if plugin_icons and plugin_icons ~= self.targets.simpleui.live then
+        local prev = plugin_icons .. ".iconpackmanager-previous"
+        local next_dir = plugin_icons .. ".iconpackmanager-next"
+        if fileMode(plugin_icons) ~= "directory" and fileMode(prev) == "directory" then
+            os.rename(prev, plugin_icons)
+        elseif fileMode(prev) == "directory" then
+            removeTree(prev)
+        end
+        removeTree(next_dir)
+    end
     if self:hasLegacyBackup() then
         self:_restoreLegacyBuiltin()
     end
@@ -980,10 +1531,13 @@ function Engine:_commitStages()
     for _, key in ipairs(self:_activeTargets()) do
         removeTree(self.targets[key].previous)
     end
-    -- Leave no empty override dir behind once everything is back to official.
-    local user_icons = self.targets.mdlight.live
-    if fileMode(user_icons) == "directory" and isEmptyDir(user_icons) then
-        os.remove(user_icons)
+    -- Leave no empty override / managed dir behind once everything is back to official.
+    for _, key in ipairs(self:_activeTargets()) do
+        local dir = self.targets[key].live
+        if (key == "mdlight" or self.targets[key].mode == "settings")
+                and fileMode(dir) == "directory" and isEmptyDir(dir) then
+            os.remove(dir)
+        end
     end
     return true
 end
@@ -1024,6 +1578,11 @@ function Engine:_applyPreparedPlan(path, plan, prepare_func)
         return nil, err
     end
     self:_writeManaged(new_managed)
+    local sui_ok, sui_err = self:_syncSimpleUISettings(plan.simpleui_settings, true)
+    if not sui_ok then
+        return nil, "同步 Simple UI 图标配置失败：" .. tostring(sui_err)
+    end
+    self:_restorePluginIcons()
     logger.info("iconpackmanager: applied", path, plan.mdlight, plan.simpleui)
     return plan
 end
@@ -1058,8 +1617,8 @@ function Engine:applyPack(pack)
     return self:applyArchive(pack.path)
 end
 
--- Back to the official look: drop our overrides from <data>/icons and lay the
--- bundled official Simple UI icons over the plugin's icons dir.
+-- Back to the official look: drop our overrides from <data>/icons and restore
+-- Simple UI to its official defaults (via sui_settings.lua or plugin icons dir).
 -- Returns true[, warning].
 function Engine:restoreOriginal()
     local ok, err = self:_prepareStages(false)
@@ -1072,6 +1631,11 @@ function Engine:restoreOriginal()
         return nil, err
     end
     self:_writeManaged({})
+    local sui_ok, sui_err = self:_syncSimpleUISettings({}, true)
+    if not sui_ok then
+        return nil, "恢复 Simple UI 默认配置失败：" .. tostring(sui_err)
+    end
+    self:_restorePluginIcons()
     logger.info("iconpackmanager: restored official icons")
     local legacy_ok, legacy_err = self:_restoreLegacyBuiltin()
     if not legacy_ok then

@@ -45,11 +45,15 @@ end
 
 function IconPackManager:init()
     local data_dir = DataStorage:getFullDataDir() or DataStorage:getDataDir()
+    local settings_dir = DataStorage:getSettingsDir()
+    if settings_dir == "./settings" and data_dir:sub(1, 1) == "/" then
+        settings_dir = data_dir .. "/settings"
+    end
     local plugin_dir = getPluginDir(data_dir)
     self.settings = LuaSettings:open(self.settings_file)
     self.engine = Engine:new{
         data_dir = data_dir,
-        settings_dir = DataStorage:getSettingsDir(),
+        settings_dir = settings_dir,
         plugin_dir = plugin_dir,
     }
     local ok, message = self.engine:recoverTransaction()
@@ -162,7 +166,7 @@ function IconPackManager:showPackReport(pack)
     else
         lines[#lines + 1] = _("Simple UI：未安装（已跳过）")
     end
-    lines[#lines + 1] = T(_("未匹配 SVG：%1"), #plan.unknown)
+    lines[#lines + 1] = T(_("未匹配图标：%1"), #plan.unknown)
     lines[#lines + 1] = ""
     lines[#lines + 1] = _("KOReader 缺少的图标：")
     lines[#lines + 1] = reportList(plan.missing.mdlight)
@@ -172,7 +176,7 @@ function IconPackManager:showPackReport(pack)
         lines[#lines + 1] = reportList(plan.missing.simpleui)
     end
     lines[#lines + 1] = ""
-    lines[#lines + 1] = _("未匹配、不会安装的 SVG：")
+    lines[#lines + 1] = _("未匹配、不会安装的图标：")
     lines[#lines + 1] = reportList(plan.unknown)
 
     local text = table.concat(lines, "\n")

@@ -3,17 +3,18 @@
 适用于 KOReader 的图标包切换插件，支持管理以下图标：
 
 - **KOReader 官方图标**（通过 `<数据目录>/icons` 用户覆盖机制，完美适配安卓与电子墨水屏设备）
-- **Simple UI 插件图标**（`plugins/simpleui.koplugin/icons`，**可选**，未安装时自动跳过）
+- **Simple UI 插件图标**（自动适配新版 Simple UI 的 `sui_settings.lua` 图标槽位与 Nerd Font 覆盖机制，同时兼容旧版 `plugins/simpleui.koplugin/icons`；**可选**，未安装时自动跳过）
 
 ---
 
 ## 特性
 
 * **全平台原生适配（完美支持安卓）**：在 Android 设备上，KOReader 程序位于应用私有目录，而数据位于 `/sdcard/koreader`。本插件采用 KOReader 官方推荐的用户覆盖路径 `<数据目录>/icons`，不破坏程序本体文件，即使 OTA 升级或覆盖安装也不会丢失图标，也彻底解决了安卓上的只读/权限问题。
+* **完整兼容最新 Simple UI（含 Nerd Font 架构）**：新版 Simple UI 默认改用 Nerd Font 字形并接管了标题栏、分页箭头、底部栏与快捷动作图标。本插件会自动将图标包中的 Simple UI 专用图标（新版 `sui_*.svg` / `sui_action_*.svg` 与旧版 `library.svg` 等）以及 KOReader 对应图标（`appbar.menu.svg`、`chevron.*.svg` 等）同步写入 Simple UI 的 `sui_settings.lua`，确保标题栏、底栏、分页箭头、菜单标签页与快捷动作全部真正生效。
 * **内置官方图标包，免去繁琐备份**：插件直接内置了 KOReader 官方最新 `mdlight` 图标与 Simple UI 官方图标。安装后**无需执行备份**即可直接一键更换主题；随时点击“恢复官方默认图标”即可秒级复原。
-* **双向兼容 Simple UI**：自动探测 Simple UI 插件（支持安卓用户存储及各平台安装目录）。安装了则协同更换，未安装则自动仅管理 KOReader 图标。
+* **格式兼容 SVG 与 PNG**：支持 `.svg` 与 `.png` 图标文件。
 * **智能格式识别**：支持多主题平铺文件夹、嵌套版本子文件夹，以及结构化 ZIP 压缩包。
-* **完整性检测报告**：直观查看每个图标包的覆盖率、缺失的原版图标列表及未知 SVG。
+* **完整性检测报告**：直观查看每个图标包的覆盖率、缺失的原版图标列表及未匹配图标。
 * **原子级安全切换**：每次更换基于官方基准叠加，异常自动秒级回滚。
 
 ---
@@ -50,9 +51,9 @@
         └── frontlight.svg
 ```
 
-* 平铺文件会按文件名与 KOReader（以及 Simple UI）图标匹配；同名图标在两个目标中都存在时会同时替换。
-* 无法匹配的 SVG 会在检测报告中列出，但不会被错误安装。
-* 若一个主题目录下没有直接放 SVG，而是包含多个子风格（如 `暗色/`、`亮色/`），每个子目录会被自动识别为独立图标包。
+* 平铺文件会按文件名与 KOReader（以及 Simple UI）图标匹配；支持新版 Simple UI `sui_*.svg` / `sui_action_*.svg`、旧版 `library.svg` 等命名，并会将 `mdlight` 中的通用图标（如 `appbar.menu.svg`、`chevron.left.svg`）自动映射到 Simple UI 对应位置。
+* 无法匹配的图标会在检测报告中列出，但不会被错误安装。
+* 若一个主题目录下没有直接放图标，而是包含多个子风格（如 `暗色/`、`亮色/`），每个子目录会被自动识别为独立图标包。
 
 ### 2. ZIP 格式
 
@@ -62,10 +63,11 @@
 my-icons.zip
 ├── mdlight/
 │   ├── appbar.menu.svg
-│   └── settings.svg
+│   └── appbar.settings.svg
 └── simpleui/
-    ├── library.svg
-    └── settings.svg
+    ├── sui_menu.svg
+    ├── sui_action_library.svg
+    └── library.svg
 ```
 
 也支持包含完整 KOReader 相对路径的 ZIP：
@@ -75,7 +77,7 @@ resources/icons/mdlight/*.svg
 plugins/simpleui.koplugin/icons/*.svg
 ```
 
-ZIP 内同样支持直接平铺 SVG。图标包可以只替换一部分图标，缺少的部分会自动沿用官方默认图标。
+ZIP 内同样支持直接平铺 `.svg` / `.png`。图标包可以只替换一部分图标，缺少的部分会自动沿用官方默认图标。
 
 ---
 
